@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  STAFF
+  CUSTOMER
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique          // e.g. "glow-salon" → used in URLs
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  services    Service[]
+  staff       Staff[]
+  bookings Booking[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships   Membership[]
+  staffProfiles Staff[]
+  bookings Booking[]
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  role   Role   @default(CUSTOMER)
+
+  userId         String
+  organizationId String
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, organizationId])   // a user joins an org only once
+  @@index([organizationId])            // tenant-scoped queries hit this
+}
+
+model Service {
+  id              String  @id @default(cuid())
+  organizationId  String
+  name            String              // "Men's Haircut"
+  description     String?
+  durationMinutes Int                 // 30, 45, 60...
+  priceCents      Int                 // store money as integer cents — never floats
+  isActive        Boolean @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  staff        StaffService[]
+  bookings     Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+model Staff {
+  id             String  @id @default(cuid())
+  organizationId String
+  name           String
+  title          String?             // "Senior Stylist"
+  isActive       Boolean @default(true)
+
+  userId String?                     // optional — staff may have no login yet
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  services     StaffService[]
+  availability Availability[]
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+// Join table: which staff can perform which services (many-to-many)
+model StaffService {
+  staffId   String
+  serviceId String
+
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, serviceId])         // composite primary key — no separate id needed
+}
+
+enum Weekday {
+  SUN
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+}
+
+model Availability {
+  id        String  @id @default(cuid())
+  staffId   String
+  weekday   Weekday
+  startMin  Int                       // minutes from midnight: 9:00 = 540
+  endMin    Int                       // 17:00 = 1020
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+}
+
+enum BookingStatus {
+  PENDING      // created, awaiting payment
+  CONFIRMED    // payment succeeded (set by Stripe webhook later)
+  CANCELLED
+  COMPLETED
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  organizationId String
+  serviceId      String
+  staffId        String
+  customerId     String        // the User who booked
+
+  startAt        DateTime      // actual appointment start (stored in UTC)
+  endAt          DateTime      // startAt + service duration
+  status         BookingStatus @default(PENDING)
+
+  priceCents     Int           // snapshot of price at booking time
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staff        Staff        @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  customer     User         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([staffId, startAt])   // the key index for conflict checks — explained below
+}
