@@ -1,4 +1,5 @@
 import { PrismaClient, Role, Weekday, BookingStatus } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -20,12 +21,21 @@ async function main() {
     data: { name: "Glow Salon", slug: "glow-salon" },
   });
 
+  const org2 = await prisma.organization.create({
+    data: { name: "Zen Spa", slug: "zen-spa" },
+  });
+
+  const devPassword = await bcrypt.hash("password123", 10);
   // 2. Users: an owner and a customer
   const owner = await prisma.user.create({
-    data: { email: "owner@glow.test", name: "Priya (Owner)" },
+    data: { email: "owner@glow.test", name: "Priya (Owner)", passwordHash: devPassword },
   });
   const customer = await prisma.user.create({
-    data: { email: "customer@glow.test", name: "Yashika" },
+    data: { email: "customer@glow.test", name: "Yashika", passwordHash: devPassword },
+  });
+
+  await prisma.membership.create({
+    data: { userId: customer.id, organizationId: org2.id, role: Role.CUSTOMER },
   });
 
   // 3. Memberships — link users to the org with roles

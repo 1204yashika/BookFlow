@@ -24,12 +24,15 @@ model Organization {
   services    Service[]
   staff       Staff[]
   bookings Booking[]
+
+  timezone String @default("Asia/Kolkata")   // IANA timezone name
 }
 
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  passwordHash String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
